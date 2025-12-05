@@ -25,8 +25,9 @@ print("Area before corrosion = "+str(round(InitialArea,2))+" mm2")
 # MethodA: by indicating the mass_loss
 Minimum_area_after_corrosion=calculate_minimum_area_after_corrosion(uncorroded_area=InitialArea,pitting_factor=1.2,mass_loss=0.3)
 # MethodB: by indicating the velocity_of_corrosion and the time_of_corrosion
-Minimum_area_after_corrosion=calculate_minimum_area_after_corrosion(uncorroded_area=InitialArea,pitting_factor=1.2,velocity_of_corrosion=110,time_of_corrosion=10)
+Minimum_area_after_corrosion=calculate_minimum_area_after_corrosion(uncorroded_area=InitialArea,pitting_factor=1,velocity_of_corrosion=100,time_of_corrosion=10)
+#Minimum_area_after_corrosion=calculate_minimum_area_after_corrosion(uncorroded_area=InitialArea,pitting_factor=1,velocity_of_corrosion=0,time_of_corrosion=0)
 print("Calculated Minimum_area_after_corrosion = "+str(round(Minimum_area_after_corrosion,2))+" mm2")
 
-
+print(7**2/8**2*InitialArea)
 
