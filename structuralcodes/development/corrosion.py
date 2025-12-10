@@ -192,6 +192,7 @@ def calculate_minimum_area_after_corrosion(
     or (ii) using the velocity of corrosion together with the time of corrosion.
     A pitting factor is used to relate the maximum pit depth to the average pit depth.
     Actually (02/12/2025) only MC2020 is implemented, see chapter 30.1.11.3.5.
+    Function is valid for round bars!.
 
     Keyword Arguments:
         uncorroded_area (float): Original (uncorroded) cross-sectional area of the rebar [mm²].

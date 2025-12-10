@@ -1,7 +1,10 @@
+"""tests for the functions in structuralcodes.development.corrosion"""
+
 import pytest
 
 from structuralcodes.development.corrosion import calculate_velocity_of_corrosion,calculate_minimum_area_after_corrosion
 
+# Should return the velocity of corrosion (average representative value).
 @pytest.mark.parametrize(
     "corrosion_type, exposure_class, fractile, expected",
     [
@@ -20,6 +23,7 @@ def test_calculate_velocity_of_corrosion_without_fractile(corrosion_type, exposu
     Pcorr_rep = calculate_velocity_of_corrosion(corrosion_type=corrosion_type,exposure_class=exposure_class)
     assert Pcorr_rep == expected
 
+# Should return the velocity of corrosion for the relative fractile.
 @pytest.mark.parametrize(
     "corrosion_type, exposure_class, fractile, expected",
     [
@@ -45,6 +49,7 @@ def test_calculate_velocity_of_corrosion_with_fractile(corrosion_type, exposure_
     Pcorr_rep = calculate_velocity_of_corrosion(corrosion_type=corrosion_type,exposure_class=exposure_class,fractile=fractile)
     assert abs(Pcorr_rep - expected) < expected*0.001 #<0.1% error
 
+# Should raise error
 @pytest.mark.parametrize(
     "corrosion_type, exposure_class",
     [
@@ -63,6 +68,7 @@ def test_wrong_corrosion_type_and_exposure_class_combinations(corrosion_type, ex
         set_design_code('ec2_2004')
         calculate_velocity_of_corrosion(corrosion_type=corrosion_type,exposure_class=exposure_class)
 
+# Should raise error
 def test_no_design_code_or_wrong_design_code():
     from structuralcodes import set_design_code
     with pytest.raises(Exception):
@@ -71,6 +77,7 @@ def test_no_design_code_or_wrong_design_code():
         set_design_code('invaliddesigncode')
         calculate_velocity_of_corrosion(corrosion_type="carbonation_induced",exposure_class="Sheltered")
 
+# Should raise error because too low values of fractile gives negative velocity of corrosion.
 def test_low_values_of_fractile():
     from structuralcodes import set_design_code
     with pytest.raises(Exception):
@@ -79,8 +86,10 @@ def test_low_values_of_fractile():
 
 from structuralcodes.development.corrosion import calculate_minimum_area_after_corrosion
 
+# Round bar of diameter=16mm.
 InitialArea=8*8*3.141592
 
+# Should return the remaining area after corrosion.
 @pytest.mark.parametrize(
     "mass_loss, pitting_factor, expected",
     [
@@ -99,6 +108,7 @@ def test_minimum_area_after_corrosion_given_mass_loss_and_pitting_factor(mass_lo
     Minimum_area_after_corrosion=calculate_minimum_area_after_corrosion(uncorroded_area=InitialArea,pitting_factor=pitting_factor,mass_loss=mass_loss)
     assert abs(Minimum_area_after_corrosion-expected) <= expected *0.00000001
 
+# Should return the remaining area after corrosion.
 @pytest.mark.parametrize(
     "velocity_of_corrosion,time_of_corrosion, pitting_factor, expected",
     [
@@ -119,6 +129,7 @@ def test_minimum_area_after_corrosion_given_velocity_of_corrosion_and_time_of_co
         time_of_corrosion=time_of_corrosion)
     assert abs(Minimum_area_after_corrosion-expected) <= expected *0.0001
 
+# Should raise error
 def test_no_design_code_or_wrong_design_code2():
     from structuralcodes import set_design_code
     with pytest.raises(Exception):
@@ -135,6 +146,7 @@ def test_no_design_code_or_wrong_design_code2():
         velocity_of_corrosion=100,
         time_of_corrosion=10)
 
+# Should raise error
 @pytest.mark.parametrize(
     "velocity_of_corrosion, time_of_corrosion, mass_loss, pitting_factor",
     [
