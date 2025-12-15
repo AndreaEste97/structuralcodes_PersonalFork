@@ -2,10 +2,9 @@ import typing as t
 from structuralcodes.codes import _use_design_code
 
 def calculate_velocity_of_corrosion(
-    corrosion_type: t.Optional[str] = "chloride_induced",
-    exposure_class: t.Optional[str] = None,
+    corrosion_type: t.Literal["carbonation_induced","chloride_induced"],
+    exposure_class: t.Literal["Sheltered","Unsheltered","Wet","Cyclic_dry_wet","Airborn_seawater","Submerged","Tidal_zone"],
     fractile: t.Optional[float] = 0.5,
-    design_code: t.Optional[str] = None,
 ) -> float:
     """A function to calculate the representative velocity of corrosion given certain environmental conditions.
     Actually (02/12/2025) only MC2020 is implemented, see table 30.1-6a and 30.1-6b.
@@ -20,35 +19,17 @@ def calculate_velocity_of_corrosion(
             have a velocity of corrosion lower than Pcorr_rep (the returning value of this function). For example, the velocity of corrosion
             calculacted with fractile=0.99 can be interpreted as "99% of rebars have a velocity of corrosion lower than Pcorr_rep, giving a 
             higher degree of safety of the returned value Pcorr_rep. (default: "0.5")
-        design_code (str): Optional string (default: None) indicating the
-            desired standard. If None (default) the globally used design
-            standard will be adopted. Otherwise the design standard specified
-            will be used for the instance of the material.
 
     Return:
         Pcorr_rep (float): representative velocity of corrosion of the rebars, defined as the ratio (asbolute value) between the variation of the rebar's diameter
             and the time of exposure. Unit of measurement: μm/yr.
 
     Raises:
-        ValueError: if the design code is not valid.
         ValueError: if the corrosion type is not valid.
         ValueError: if the exposure class is not valid for the relative corrosion type.
         ValueError: if the fractile value is not valid.
         ValueError: if the fractile value used causes Pcorr_rep to obtain values lower than 0.
     """
-    # Get the code from the global variable
-    _code = _use_design_code(design_code)
-
-    # Check if the code is a proper concrete code
-    code = None
-    if _code is not None:
-        code = _code
-    if code is None:
-        raise ValueError(
-            'The design code is not set, either use '
-            'structuralcodes.code.set_designcode, or provide a valid '
-            'string in the function.'
-        )
 
     # Check if corrosion_type is valid.
     ValidCorrosionTypes=["carbonation_induced","chloride_induced"]
@@ -61,11 +42,6 @@ def calculate_velocity_of_corrosion(
     # Set exposure_class to default values if None. Then, check if exposure_class is valid.
     ValidExposureClassesForCarbonationInducedCorrosion=["Sheltered","Unsheltered"]
     ValidExposureClassesForChlorideInducedCorrosion=["Wet","Cyclic_dry_wet","Airborn_seawater","Submerged","Tidal_zone"]
-    if exposure_class is None:
-        if corrosion_type=="carbonation_induced":
-            exposure_class="Unsheltered"
-        elif corrosion_type=="chloride_induced":
-            exposure_class="Cyclic_dry_wet"
     if corrosion_type=="carbonation_induced" and exposure_class not in ValidExposureClassesForCarbonationInducedCorrosion:
         raise ValueError(
             'The variable exposure_class is not valid for the current corrosion_type, either use ' \
@@ -184,7 +160,6 @@ def calculate_minimum_area_after_corrosion(
     mass_loss: t.Optional[float] = None,
     velocity_of_corrosion: t.Optional[float] = None,
     time_of_corrosion: t.Optional[float] = None,
-    design_code: t.Optional[str] = None,
 ) -> float:
     
     """A function to calculate the minimum residual steel area after corrosion.
@@ -204,9 +179,6 @@ def calculate_minimum_area_after_corrosion(
             with time_of_corrosion. If provided, mass_loss must be None. (default: None)
         time_of_corrosion (float): Time of corrosion [years]. Must be ≥ 0. Used with
             velocity_of_corrosion. (default: None)
-        design_code (str): Optional string indicating the desired standard. If None
-            (default) the globally used design standard will be adopted. Otherwise,
-            the design standard specified will be used.
 
     Return:
         corroded_minimum_area (float): Minimum residual area of the corroded rebar [mm²],
@@ -214,7 +186,6 @@ def calculate_minimum_area_after_corrosion(
             `pitting_factor * average_pit_depth`.
 
     Raises:
-        ValueError: if the design code is not set or invalid.
         ValueError: if both mass_loss and (velocity_of_corrosion + time_of_corrosion)
             are provided simultaneously.
         ValueError: if only one between velocity_of_corrosion and time_of_corrosion is provided.
@@ -228,20 +199,6 @@ def calculate_minimum_area_after_corrosion(
     import math
     from math import  sqrt
     uncorroded_diameter=sqrt(uncorroded_area/math.pi)*2
-
-    # Get the code from the global variable
-    _code = _use_design_code(design_code)
-
-    # Check if the code is a proper concrete code
-    code = None
-    if _code is not None:
-        code = _code
-    if code is None:
-        raise ValueError(
-            'The design code is not set, either use '
-            'structuralcodes.code.set_designcode, or provide a valid '
-            'string in the function.'
-        )
     
     # Input data validation
     if (mass_loss is not None) and (velocity_of_corrosion is not None or time_of_corrosion is not None):
@@ -313,95 +270,4 @@ def calculate_minimum_area_after_corrosion(
         return corroded_minimum_area
     return
 
-"""
-STILL IN PROGRESS
-
- def calculate_shear_resistance_of_members_without_shear_reinforcement_with_corroded_longitudinal_reinforcement(
-    fck: float,
-    gc: float,
-    z: float,
-    bw: float,
-    Es: float,
-    kdg:float,
-    As_det: float,
-    M_Ed: float,
-    V_Ed: float,
-    N_Ed: float,
-    De: float,
-    k_bond: float = 0.75,
-    design_code: t.Optional[str] = None,
-) -> float:
-    ""
-    Compute the design shear resistance Vrdc for members without shear reinforcement
-    but with corroded longitudinal reinforcement, following MC2020
-    Section 30.1.11.3.1 (eqs. 30.1-149 to 30.1-151).
-
-    Parameters:
-        fck : float
-            Concrete compressive strength [MPa].
-        g_c : float
-            Partial safety factor for concrete (-).
-        z : float
-            Internal lever arm [mm].
-        bw : float
-            Effective web width [mm].
-        Es : float
-            Modulus of elasticity of steel [MPa].
-        As_det : float
-            Residual corroded tensile reinforcement area [mm²].
-        M_Ed : float
-            Design bending moment [N·mm].
-        V_Ed : float
-            Design shear force [N].
-        N_Ed : float
-            Design axial force [N] (positive = tension).
-        De : float
-            Effective depth of tensile reinforcement [mm].
-        k_bond : float, optional
-            Bond reduction factor for corrosion. Default: 0.75 (moderate corrosion).
-        design_code : str, optional
-            Required design code name (must be MC2020). If None → raise error.
-
-    Returns
-    -------
-    float
-        Shear resistance V_Rd,c [N].
-
-    Raises
-    ------
-    ValueError
-        If input validation fails or code is invalid.
-    ""
-
-    import math
-
-    # Retrieve active design code
-    _code = _use_design_code(design_code)
-
-    if _code is None:
-        raise ValueError(
-            "The design code is not set. Use structuralcodes.code.set_designcode "
-            "or pass a valid design_code string."
-        )
-    if _code != "MC2020":
-        raise ValueError("Only MC2020 shear formulation is implemented (30.1.11.3.1).")
-
-    # Input validation
-    if any(x < 0 for x in [f_c, g_c, z, bw, Es, As_det]):
-        raise ValueError("Material and geometric inputs must be non-negative.")
-
-    if k_bond <= 0:
-        raise ValueError("k_bond must be positive.")
-
-
-    # Compute longitudinal strain ε_x,det (Equation 30.1-151)
-    eps_x_det = (1.0 / (2 * Es * As_det)* (k_bond * M_Ed / z+ V_Ed + N_Ed * (0.5 + De / z)))
-
-    # Compute k_v (Equation 30.1-150)
-    kv = (0.4 / (1 + 1500 * eps_x_det)) + (1300 / (1000 + k_bond * z))
-
-    # Compute V_Rd,c (Equation 30.1-149)
-    Vrdc = kv * math.sqrt(f_c / g_c) * z * bw
-
-    return Vrdc """
 
