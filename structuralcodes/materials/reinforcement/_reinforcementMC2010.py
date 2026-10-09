@@ -27,6 +27,7 @@ class ReinforcementMC2010(Reinforcement):
                     'elastic',
                     'elasticperfectlyplastic',
                     'elasticplastic',
+                    'AsdSteel1D',
                 ],
                 ConstitutiveLaw,
             ]
@@ -34,6 +35,7 @@ class ReinforcementMC2010(Reinforcement):
         initial_strain: t.Optional[float] = None,
         initial_stress: t.Optional[float] = None,
         strain_compatibility: t.Optional[bool] = None,
+        Delta: t.Optional[float] = 0.1,
     ):
         """Initializes a new instance of Reinforcement for MC2010.
 
@@ -54,8 +56,8 @@ class ReinforcementMC2010(Reinforcement):
             constitutive_law (ConstitutiveLaw | str): A valid ConstitutiveLaw
                 object for reinforcement or a string defining a valid
                 constitutive law type for reinforcement. (valid options for
-                string: 'elastic', 'elasticplastic', or
-                'elasticperfectlyplastic').
+                string: 'elastic', 'elasticplastic',
+                'elasticperfectlyplastic', or 'AsdSteel1D').
             initial_strain (Optional[float]): Initial strain of the material.
             initial_stress (Optional[float]): Initial stress of the material.
             strain_compatibility (Optional[bool]): Only relevant if
@@ -63,6 +65,8 @@ class ReinforcementMC2010(Reinforcement):
                 True, the material deforms with the geometry. If False, the
                 stress in the material upon loading is kept constant
                 corresponding to the initial strain.
+            Delta (Optional[float]): Shape parameter passed to the base
+                reinforcement material and used by AsdSteel1D (default: 0.1).
 
         Raises:
             ValueError: If the constitutive law name is not available for the
@@ -84,6 +88,7 @@ class ReinforcementMC2010(Reinforcement):
             initial_strain=initial_strain,
             initial_stress=initial_stress,
             strain_compatibility=strain_compatibility,
+            Delta=Delta,
         )
         self._gamma_eps = gamma_eps
         self._constitutive_law = (
@@ -145,4 +150,14 @@ class ReinforcementMC2010(Reinforcement):
             'fy': self.fyd(),
             'Eh': Eh,
             'eps_su': self.epsud(),
+        }
+
+    def __asdsteel1d__(self) -> dict:
+        """Returns kwargs for the AsdSteel1D constitutive law."""
+        return {
+            'E': self.Es,
+            'fy': self.fyd(),
+            'Delta': self._delta,
+            'eps_su': self.epsud(),
+            'ftk': self.ftd(),
         }

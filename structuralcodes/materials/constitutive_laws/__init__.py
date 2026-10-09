@@ -15,6 +15,7 @@ from ._concrete_smeared_cracking import (
 from ._elastic import Elastic
 from ._elastic_2d import Elastic2D
 from ._elasticplastic import ElasticPlastic
+from ._AsdSteel1D import AsdSteel1D
 from ._initial_strain import InitialStrain
 from ._parabolarectangle import ParabolaRectangle
 from ._parallel import Parallel
@@ -28,6 +29,7 @@ __all__ = [
     'ElasticPlastic',
     'ParabolaRectangle',
     'BilinearCompression',
+    'AsdSteel1D',
     'Popovics',
     'Sargin',
     'UserDefined',
@@ -50,6 +52,7 @@ CONSTITUTIVE_LAWS: t.Dict[str, ConstitutiveLaw] = {
     'elasticperfectlyplastic': ElasticPlastic,
     'bilinearcompression': BilinearCompression,
     'parabolarectangle': ParabolaRectangle,
+    'asdsteel1d': AsdSteel1D,
     'popovics': Popovics,
     'sargin': Sargin,
     'initialstrain': InitialStrain,
@@ -90,7 +93,7 @@ def create_constitutive_law(
     """
     const_law = CONSTITUTIVE_LAWS.get(constitutive_law_name.lower())
     if const_law is not None:
-        method_name = f'__{constitutive_law_name}__'
+        method_name = f'__{constitutive_law_name.lower()}__'
         # check if the material object has the special method needed
         if hasattr(material, method_name) and callable(
             getattr(material, method_name)

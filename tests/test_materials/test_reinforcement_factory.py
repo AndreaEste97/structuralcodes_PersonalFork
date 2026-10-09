@@ -39,3 +39,22 @@ def test_reinforcement_factory(design_code, expected_reinforcement):
         set_design_code(design_code=design_code)
         with pytest.raises(ValueError):
             create_reinforcement(fyk=fyk, Es=Es, ftk=ftk, epsuk=epsuk)
+
+
+def test_mc2010_reinforcement_supports_asd_steel_without_eh():
+    """AsdSteel1D derives its hardening modulus from reinforcement properties."""
+    reinforcement = ReinforcementMC2010(
+        fyk=500,
+        Es=200000,
+        ftk=510,
+        epsuk=0.06,
+        constitutive_law='AsdSteel1D',
+    )
+
+    law = reinforcement.constitutive_law
+    expected_eh = (reinforcement.ftd() - reinforcement.fyd()) / (
+        reinforcement.epsud() - reinforcement.fyd() / reinforcement.Es
+    )
+
+    assert law.__class__.__name__ == 'AsdSteel1D'
+    assert law._Eh == pytest.approx(expected_eh)

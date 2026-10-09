@@ -27,6 +27,7 @@ class Reinforcement(Material):
         initial_strain: t.Optional[float] = None,
         initial_stress: t.Optional[float] = None,
         strain_compatibility: t.Optional[bool] = None,
+        Delta: t.Optional[float] = 0.1,
     ) -> None:
         """Initializes an abstract reinforcement material."""
         super().__init__(
@@ -43,6 +44,7 @@ class Reinforcement(Material):
         self._ftk = abs(ftk)
         self._epsuk = abs(epsuk)
         self._gamma_s = gamma_s
+        self._delta=Delta
 
     @property
     def fyk(self) -> float:
