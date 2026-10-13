@@ -82,17 +82,17 @@ class AsdSteel1D(ConstitutiveLaw):
         # Compute stress
         sig = self._E * eps
         if np.isscalar(sig):
-            sig=self._fy*(1-mu)/2*(1+(1+mu)*eps/(1-mu)/self._eps_sy-np.sqrt((eps/self._eps_sy-1)**2+self._Delta))
-            if (self._eps_su is not None) and (
-                eps > self._eps_su or eps < -self._eps_su
-            ):
+            sig=np.sign(eps)*self._fy*(1-mu)/2*(1+(1+mu)*abs(eps)/(1-mu)/self._eps_sy-np.sqrt((abs(eps)/self._eps_sy-1)**2+self._Delta))
+            if (self._eps_su is not None) and (abs(eps) > self._eps_su):
                 sig = 0
             return sig
-        sig=self._fy*(1-mu)/2*(1+(1+mu)*eps/(1-mu)/self._eps_sy-np.sqrt((eps/self._eps_sy-1)**2+self._Delta))
-        sig [eps <= 0] = 0
+        sig=np.sign(eps)*self._fy*(1-mu)/2*(1+(1+mu)*abs(eps)/(1-mu)/self._eps_sy-np.sqrt((abs(eps)/self._eps_sy-1)**2+self._Delta))
         if self._eps_su is not None:
             sig[eps > self._eps_su] = 0
+            sig[eps < -self._eps_su] = 0
         return sig
+
+    # le funzioni sottostanti sono ancora da aggiornare
 
     def get_tangent(
         self, eps: t.Union[float, ArrayLike]
