@@ -2,6 +2,8 @@
 
 import typing as t
 
+from numpy.typing import ArrayLike
+
 from structuralcodes.codes import mc2010
 
 from ..constitutive_laws import ConstitutiveLaw, create_constitutive_law
@@ -36,6 +38,8 @@ class ReinforcementMC2010(Reinforcement):
         initial_stress: t.Optional[float] = None,
         strain_compatibility: t.Optional[bool] = None,
         Delta: t.Optional[float] = 0.1,
+        Stress_Slip: t.Optional[ArrayLike] = None,
+        Strain_Slip: t.Optional[ArrayLike] = None,
     ):
         """Initializes a new instance of Reinforcement for MC2010.
 
@@ -65,8 +69,11 @@ class ReinforcementMC2010(Reinforcement):
                 True, the material deforms with the geometry. If False, the
                 stress in the material upon loading is kept constant
                 corresponding to the initial strain.
-            Delta (Optional[float]): Shape parameter passed to the base
-                reinforcement material and used by AsdSteel1D (default: 0.1).
+            Delta (Optional[float]): Shape parameter for AsdSteel1D material model (default: 0.1).
+            Stress_Slip (ArrayLike, optional): Stress values for the
+                stress-slip relationship used by AsdSteel1D.
+            Strain_Slip (ArrayLike, optional): Strain values for the
+                stress-slip relationship used by AsdSteel1D.
 
         Raises:
             ValueError: If the constitutive law name is not available for the
@@ -91,6 +98,8 @@ class ReinforcementMC2010(Reinforcement):
             Delta=Delta,
         )
         self._gamma_eps = gamma_eps
+        self._stress_slip = Stress_Slip
+        self._strain_slip = Strain_Slip
         self._constitutive_law = (
             constitutive_law
             if isinstance(constitutive_law, ConstitutiveLaw)
@@ -160,4 +169,6 @@ class ReinforcementMC2010(Reinforcement):
             'Delta': self._delta,
             'eps_su': self.epsud(),
             'ftk': self.ftd(),
+            'Stress_Slip': self._stress_slip,
+            'Strain_Slip': self._strain_slip,
         }
