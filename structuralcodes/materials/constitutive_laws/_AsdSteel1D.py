@@ -7,6 +7,7 @@ Computers & Structures, 156, 58-71"""
 from __future__ import annotations  # To have clean hints of ArrayLike in docs
 
 import typing as t
+import warnings
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -33,6 +34,7 @@ class AsdSteel1D(ConstitutiveLaw):
         name: t.Optional[str] = None,
         Stress_Slip: t.Optional[ArrayLike] = None,
         Strain_Slip: t.Optional[ArrayLike] = None,
+        L_OVer_D_ratio: t.Optional[float] = None,
     ) -> None:
         """Initialize an AsdSteel1D Material.
 
@@ -52,6 +54,8 @@ class AsdSteel1D(ConstitutiveLaw):
                 stress-slip relationship.
             Strain_Slip (ArrayLike, optional): Strain values for the
                 stress-slip relationship.
+            L_OVer_D_ratio (float, optional): Length-to-diameter ratio used
+                to model reinforcement buckling in compression.
         """
         super().__init__(name=name, base_name='AsdSteel1D')
         if E > 0:
@@ -80,9 +84,35 @@ class AsdSteel1D(ConstitutiveLaw):
             raise ValueError(
                 'Stress_Slip and Strain_Slip must be provided together.'
             )
+        if L_OVer_D_ratio is None:
+            self._LDRatio=None
+            self._LambdaP=None
+            self._Rho1=None
+            self._Rho2=None
+            self._SigmaStar=None
+        else:
+            if not np.isfinite(L_OVer_D_ratio) or L_OVer_D_ratio <= 0:
+                raise ValueError(
+                    'L_OVer_D_ratio must be a finite positive value.'
+                )
+            self._LDRatio = L_OVer_D_ratio
+            self._LambdaP = np.sqrt(self._fy / 100) * self._LDRatio
+            self._Rho1 = 4.572 * self._LambdaP - 74.43
+            self._Rho2 = 318.4 * np.exp(-0.071 * self._LambdaP)
+            self._SigmaStar = 3.75 * self._fy / self._LDRatio
+            if self._LDRatio > 30:
+                warnings.warn(
+                    'AsdSteel1D is calibrated for compression up to '
+                    'L_OVer_D_ratio <= 30.',
+                    UserWarning,
+                    stacklevel=2,
+                )
         self._bonded_strain = None
         self._bonded_stress = None
         self._bonded_stress_right = None
+        self._bonded_compression_strain = None
+        self._bonded_compression_stress = None
+        self._bonded_compression_stress_right = None
         if Stress_Slip is not None and Strain_Slip is not None:
             stress_slip = np.asarray(Stress_Slip, dtype=float)
             strain_slip = np.asarray(Strain_Slip, dtype=float)
@@ -105,38 +135,120 @@ class AsdSteel1D(ConstitutiveLaw):
                     'strain values and at least one positive stress.'
                 )
             self._set_bonded_curve(stress_slip, strain_slip)
+            compression_strains, _ = self._get_tension_curve(
+                float(np.max(stress_slip))
+            )
+            compression_stresses = np.abs(
+                self._get_base_stress(-compression_strains)
+            )
+            (
+                self._bonded_compression_strain,
+                self._bonded_compression_stress,
+                self._bonded_compression_stress_right,
+            ) = self._combine_bonded_curve(
+                compression_strains,
+                compression_stresses,
+                stress_slip,
+                strain_slip,
+                use_steel_curve=True,
+            )
 
     def _get_base_stress(
         self, eps: t.Union[float, ArrayLike]
     ) -> t.Union[float, ArrayLike]:
         """Return the AsdSteel1D stress without a slip contribution."""
+        eps = np.asarray(eps, dtype=float)
         mu = self._Eh / self._E
-        sig = (
-            np.sign(eps)
-            * self._fy
-            * (1 - mu)
-            / 2
-            * (
-                1
-                + (1 + mu) * abs(eps) / (1 - mu) / self._eps_sy
-                - np.sqrt(
-                    (abs(eps) / self._eps_sy - 1) ** 2 + self._Delta
+        abs_eps = np.abs(eps)
+        tension_stress = (np.sign(eps)* self._fy* (1 - mu)/ 2* (1+ (1 + mu) * abs_eps / (1 - mu) / self._eps_sy- np.sqrt((abs_eps / self._eps_sy - 1) ** 2 + self._Delta)))
+        if self._LDRatio is None or self._LDRatio < 6:
+            sig = tension_stress
+        elif self._LDRatio <= 8:
+            sig = np.where(
+                eps >= 0,
+                tension_stress,
+                np.maximum(self._E * eps, -self._fy),
+            )
+        else:
+            compressive_plastic_strain = np.maximum(
+                -eps - self._eps_sy, 0
+            )
+            compressive_stress = -(
+                self._SigmaStar
+                + (self._fy - self._SigmaStar)
+                * np.exp(
+                    -(
+                        self._Rho1
+                        + self._Rho2
+                        * np.sqrt(compressive_plastic_strain)
+                    )
+                    * compressive_plastic_strain
                 )
             )
-        )
-        if np.isscalar(sig):
-            if self._eps_su is not None and abs(eps) > self._eps_su:
-                return 0.0
-            return sig
+            sig = np.where(
+                eps >= 0,
+                tension_stress,
+                np.where(
+                    eps >= -self._eps_sy,
+                    self._E * eps,
+                    compressive_stress,
+                ),
+            )
         if self._eps_su is not None:
-            sig[eps > self._eps_su] = 0
-            sig[eps < -self._eps_su] = 0
+            sig = np.where(np.abs(eps) > self._eps_su, 0.0, sig)
+        if sig.ndim == 0:
+            return float(sig)
         return sig
 
     def _set_bonded_curve(
         self, stress_slip: np.ndarray, strain_slip: np.ndarray
     ) -> None:
         """Combine the steel and slip curves using strain compatibility."""
+        steel_strains, steel_stresses = self._get_tension_curve(
+            float(np.max(stress_slip))
+        )
+        (
+            self._bonded_strain,
+            self._bonded_stress,
+            self._bonded_stress_right,
+        ) = self._combine_bonded_curve(
+            steel_strains,
+            steel_stresses,
+            stress_slip,
+            strain_slip,
+        )
+
+    def _get_tension_curve(
+        self, max_slip_stress: float
+    ) -> t.Tuple[np.ndarray, np.ndarray]:
+        """Return sampled tensile strains and stresses."""
+        if self._eps_su is not None:
+            steel_strains = np.linspace(0, self._eps_su, 1000)
+            steel_stresses = self._get_base_stress(steel_strains)
+        else:
+            strain_limit = max(self._eps_sy, max_slip_stress / self._E)
+            for _ in range(32):
+                steel_strains = np.linspace(0, strain_limit, 1000)
+                steel_stresses = self._get_base_stress(steel_strains)
+                if steel_stresses[-1] >= max_slip_stress:
+                    break
+                strain_limit *= 2
+            else:
+                raise ValueError(
+                    'Could not determine a steel strain range for '
+                    'Stress_Slip.'
+                )
+        return steel_strains, steel_stresses
+
+    def _combine_bonded_curve(
+        self,
+        steel_strains: np.ndarray,
+        steel_stresses: np.ndarray,
+        stress_slip: np.ndarray,
+        strain_slip: np.ndarray,
+        use_steel_curve: bool = False,
+    ) -> t.Tuple[np.ndarray, np.ndarray, t.Optional[float]]:
+        """Combine sampled steel and slip curves using strain compatibility."""
         peak_index = int(np.argmax(stress_slip))
         if peak_index == 0:
             raise ValueError(
@@ -150,41 +262,47 @@ class AsdSteel1D(ConstitutiveLaw):
                 'Stress_Slip must be non-decreasing up to its maximum.'
             )
 
-        if self._eps_su is not None:
-            steel_strains = np.linspace(0, self._eps_su, 1000)
-            steel_stresses = self._get_base_stress(steel_strains)
-        else:
-            max_slip_stress = float(np.max(stress_slip))
-            strain_limit = max(self._eps_sy, max_slip_stress / self._E)
-            for _ in range(32):
-                steel_strains = np.linspace(0, strain_limit, 1000)
-                steel_stresses = self._get_base_stress(steel_strains)
-                if steel_stresses[-1] >= max_slip_stress:
-                    break
-                strain_limit *= 2
-            else:
-                raise ValueError(
-                    'Could not determine a steel strain range for '
-                    'Stress_Slip.'
-                )
-
-        if np.any(np.diff(steel_stresses) < 0):
+        steel_peak_index = int(np.argmax(steel_stresses))
+        ascending_steel_stress = steel_stresses[: steel_peak_index + 1]
+        ascending_steel_strain = steel_strains[: steel_peak_index + 1]
+        if np.any(np.diff(ascending_steel_stress) < 0):
             raise ValueError(
-                'The AsdSteel1D stress curve must be non-decreasing when '
-                'Stress_Slip and Strain_Slip are used.'
+                'The steel stress curve must be non-decreasing up to its '
+                'maximum when Stress_Slip and Strain_Slip are used.'
             )
 
-        if np.max(steel_stresses) <= np.max(stress_slip):
-            bonded_strain = steel_strains + np.interp(
+        steel_governs = use_steel_curve or (
+            np.max(steel_stresses) <= np.max(stress_slip)
+        )
+        if steel_governs:
+            slip_strains = np.interp(
                 steel_stresses, ascending_stress, ascending_strain
             )
+            if use_steel_curve and steel_peak_index < len(steel_stresses) - 1:
+                descending_stress = stress_slip[peak_index:][::-1]
+                descending_strain = strain_slip[peak_index:][::-1]
+                if np.any(np.diff(descending_stress) < 0):
+                    raise ValueError(
+                        'Stress_Slip must be non-increasing after its '
+                        'maximum to combine the compressive curve.'
+                    )
+                keep = np.r_[
+                    descending_stress[1:] != descending_stress[:-1],
+                    True,
+                ]
+                slip_strains[steel_peak_index + 1 :] = np.interp(
+                    steel_stresses[steel_peak_index + 1 :],
+                    descending_stress[keep],
+                    descending_strain[keep],
+                )
+            bonded_strain = steel_strains + slip_strains
             bonded_stress = steel_stresses
-            self._bonded_stress_right = (
+            bonded_stress_right = (
                 0.0 if self._eps_su is not None else None
             )
         else:
             bonded_strain = strain_slip + np.interp(
-                stress_slip, steel_stresses, steel_strains
+                stress_slip, ascending_steel_stress, ascending_steel_strain
             )
             bonded_stress = stress_slip
 
@@ -193,24 +311,27 @@ class AsdSteel1D(ConstitutiveLaw):
                 'The combined strain values from Stress_Slip and '
                 'Strain_Slip must be strictly increasing.'
             )
-        self._bonded_strain = bonded_strain
-        self._bonded_stress = bonded_stress
+        return bonded_strain, bonded_stress, (
+            bonded_stress_right if steel_governs else None
+        )
 
-    def get_stress(
-        self, eps: t.Union[float, ArrayLike]
-    ) -> t.Union[float, ArrayLike]:
+    def get_stress(self, eps: t.Union[float, ArrayLike]) -> t.Union[float, ArrayLike]:
         """Return the stress given strain."""
         eps = eps if np.isscalar(eps) else np.atleast_1d(eps)
         # Preprocess eps array in order
         eps = self.preprocess_strains_with_limits(eps=eps)
         if self._bonded_strain is None or self._bonded_stress is None:
             return self._get_base_stress(eps)
-        return np.sign(eps) * np.interp(
-            np.abs(eps),
-            self._bonded_strain,
-            self._bonded_stress,
-            right=self._bonded_stress_right,
-        )
+        eps_array = np.asarray(eps, dtype=float)
+        abs_eps = np.abs(eps_array)
+        tensile_stress = np.interp(abs_eps,self._bonded_strain,self._bonded_stress,right=self._bonded_stress_right,)
+        if (self._bonded_compression_strain is None or self._bonded_compression_stress is None):
+            return np.sign(eps) * tensile_stress
+        compressive_stress = np.interp( abs_eps,self._bonded_compression_strain,self._bonded_compression_stress,right=self._bonded_compression_stress_right,)
+        stress = np.where(eps_array < 0, -compressive_stress, tensile_stress)
+        if stress.ndim == 0:
+            return float(stress)
+        return stress
 
     # le funzioni sottostanti sono ancora da aggiornare
 

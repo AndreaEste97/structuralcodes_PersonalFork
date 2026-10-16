@@ -40,6 +40,7 @@ class ReinforcementMC2010(Reinforcement):
         Delta: t.Optional[float] = 0.1,
         Stress_Slip: t.Optional[ArrayLike] = None,
         Strain_Slip: t.Optional[ArrayLike] = None,
+        L_OVer_D_ratio: t.Optional[float] = None,
     ):
         """Initializes a new instance of Reinforcement for MC2010.
 
@@ -74,6 +75,8 @@ class ReinforcementMC2010(Reinforcement):
                 stress-slip relationship used by AsdSteel1D.
             Strain_Slip (ArrayLike, optional): Strain values for the
                 stress-slip relationship used by AsdSteel1D.
+            L_OVer_D_ratio (float, optional): Length-to-diameter ratio used
+                to model reinforcement buckling in compression.
 
         Raises:
             ValueError: If the constitutive law name is not available for the
@@ -100,6 +103,7 @@ class ReinforcementMC2010(Reinforcement):
         self._gamma_eps = gamma_eps
         self._stress_slip = Stress_Slip
         self._strain_slip = Strain_Slip
+        self._L_OVer_D_ratio = L_OVer_D_ratio
         self._constitutive_law = (
             constitutive_law
             if isinstance(constitutive_law, ConstitutiveLaw)
@@ -171,4 +175,5 @@ class ReinforcementMC2010(Reinforcement):
             'ftk': self.ftd(),
             'Stress_Slip': self._stress_slip,
             'Strain_Slip': self._strain_slip,
+            'L_OVer_D_ratio': self._L_OVer_D_ratio,
         }
