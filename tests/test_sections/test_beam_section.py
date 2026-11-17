@@ -45,6 +45,46 @@ from structuralcodes.sections import (
 )
 
 
+def test_get_axial_strain_according_to_tcm():
+    """Test axial strain calculation with the Tension Chord Model."""
+    concrete = ConcreteMC2010(45)
+    steel = ReinforcementMC2010(
+        fyk=450,
+        Es=206000,
+        ftk=550,
+        epsuk=0.007184466019417476,
+    )
+    geometry = SurfaceGeometry(
+        Polygon(((-25, -25), (25, -25), (25, 25), (-25, 25))),
+        concrete,
+    )
+    geometry = add_reinforcement(geometry, (0, 0), 10, steel)
+    section = BeamSection(geometry)
+
+    strain = section.section_calculator.get_axial_strain_according_to_TCM()
+
+    assert strain.shape == (1000,)
+    assert np.all(np.isfinite(strain))
+    assert np.all(np.diff(strain) >= 0)
+    forces = np.linspace(0.1, section.section_calculator.n_max - 0.1, 5)
+    assert (
+        section.section_calculator.get_axial_strain_according_to_TCM(
+            force_array=forces
+        ).shape
+        == forces.shape
+    )
+    assert (
+        section.section_calculator.get_axial_strain_according_to_TCM(
+            force_array=[0]
+        )[0]
+        == 0
+    )
+    with pytest.raises(ValueError, match='between 0'):
+        section.section_calculator.get_axial_strain_according_to_TCM(
+            force_array=[-1]
+        )
+
+
 # Test rectangular section
 def test_rectangular_section():
     """Test rectangular section."""

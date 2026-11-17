@@ -19,6 +19,8 @@ from structuralcodes.geometry import (
     SurfaceGeometry,
 )
 from structuralcodes.materials.basic import ElasticMaterial
+from structuralcodes.materials.concrete import Concrete
+from structuralcodes.materials.reinforcement import Reinforcement
 
 from ..core.base import Section, SectionCalculator
 from ..core.errors import InformationWarning, NoConvergenceWarning
@@ -819,6 +821,272 @@ class BeamSectionCalculator(SectionCalculator):
         if self.integration_data is None and integration_data is not None:
             self.integration_data = integration_data
         return n_min, n_max
+
+    def _get_tcm_section_properties(
+        self,
+    ) -> t.Tuple[Reinforcement, float, float, float]:
+        """Return the homogeneous reinforcement and TCM section properties."""
+        geometries = self.section.geometry.geometries
+        reinforcement = self.section.geometry.point_geometries
+        if not reinforcement:
+            raise ValueError('The TCM requires reinforcement bars.')
+        if any(
+            not isinstance(geo.material, Reinforcement)
+            for geo in reinforcement
+        ):
+            raise ValueError(
+                'All point geometries must use reinforcement material.'
+            )
+        if not geometries or not all(
+            isinstance(geo.material, Concrete) for geo in geometries
+        ):
+            raise ValueError('The TCM requires concrete surface geometries.')
+
+        steel = reinforcement[0].material
+        if not isinstance(steel, Reinforcement):
+            raise ValueError(
+                'All point geometries must use reinforcement material.'
+            )
+        steel_properties = ('fyk', 'ftk', 'Es', 'epsuk')
+        for geo in reinforcement[1:]:
+            if any(
+                not math.isclose(
+                    getattr(geo.material, property_name),
+                    getattr(steel, property_name),
+                    rel_tol=1e-9,
+                )
+                for property_name in steel_properties
+            ):
+                raise ValueError(
+                    'All reinforcement bars must have the same steel '
+                    'properties.'
+                )
+
+        area_reinforcement = sum(geo.area for geo in reinforcement)
+        area_concrete = sum(geo.area for geo in geometries)
+        bond_perimeter = sum(math.pi * geo.diameter for geo in reinforcement)
+        if area_reinforcement <= 0 or area_concrete <= 0:
+            raise ValueError(
+                'The TCM requires positive concrete and steel areas.'
+            )
+        if any(
+            not math.isfinite(value) or value <= 0
+            for value in (steel.fyk, steel.ftk, steel.Es, steel.epsuk)
+        ):
+            raise ValueError('Steel properties must be positive and finite.')
+        return steel, area_reinforcement, area_concrete, bond_perimeter
+
+    @staticmethod
+    def _calculate_tcm_average_strain(
+        force: float,
+        *,
+        steel: Reinforcement,
+        area_reinforcement: float,
+        area_concrete: float,
+        stress_failure_concrete: float,
+        young_modulus_concrete: float,
+        strain_yield: float,
+        post_yield_modulus: float,
+        slope_0: float,
+        slope_1: float,
+        crack_spacing: float,
+        force_bonded: float,
+        force_yield: float,
+        force_full_yield: float,
+    ) -> float:
+        """Integrate the TCM steel strain over one crack spacing."""
+
+        def steel_strain(steel_force: float) -> float:
+            stress = steel_force / area_reinforcement
+            if stress <= steel.fyk:
+                return stress / steel.Es
+            return strain_yield + (stress - steel.fyk) / post_yield_modulus
+
+        if force <= force_bonded:
+            steel_force = (
+                force
+                * (area_reinforcement * steel.Es)
+                / (
+                    area_reinforcement * steel.Es
+                    + area_concrete * young_modulus_concrete
+                )
+            )
+            concrete_force = force - steel_force
+            x_2 = 0.0
+            force_2 = force
+            x_3 = concrete_force / slope_0
+            force_3 = steel_force
+        elif force <= force_yield:
+            x_2 = 0.0
+            force_2 = force
+            x_3 = crack_spacing / 2
+            force_3 = force - area_concrete * stress_failure_concrete
+        elif force <= force_full_yield:
+            x_2 = (force - force_yield) / slope_1
+            force_2 = force_yield
+            x_3 = crack_spacing / 2
+            force_3 = force_2 - slope_0 * (crack_spacing / 2 - x_2)
+        else:
+            x_2 = crack_spacing / 2
+            force_2 = force - crack_spacing / 2 * slope_1
+            x_3 = crack_spacing / 2
+            force_3 = force_2
+
+        positions = np.array(
+            [
+                0.0,
+                x_2,
+                x_3,
+                crack_spacing - x_3,
+                crack_spacing - x_2,
+                crack_spacing,
+            ]
+        )
+        strains = np.array(
+            [
+                steel_strain(force),
+                steel_strain(force_2),
+                steel_strain(force_3),
+                steel_strain(force_3),
+                steel_strain(force_2),
+                steel_strain(force),
+            ]
+        )
+        segment_lengths = np.diff(positions)
+        mean_segment_strains = (strains[:-1] + strains[1:]) / 2
+        return float(
+            np.dot(mean_segment_strains, segment_lengths) / crack_spacing
+        )
+
+    def get_axial_strain_according_to_TCM(
+        self,
+        force_array: t.Optional[ArrayLike] = None,
+        stress_failure_concrete: float = 5.0,
+        young_modulus_concrete: float = 34000.0,
+        tau_0: float = 1.0,
+        tau_1: float = 0.5,
+    ) -> np.ndarray:
+        """Calculate the average tensile strain using the Tension Chord Model.
+
+        The model assumes a reinforced-concrete section with reinforcement
+        bars made of one steel material. If ``force_array`` is omitted, the
+        method returns 1000 values over the tensile range up to the smaller of
+        the section's tensile capacity and the TCM steel failure force.
+
+        Arguments:
+            force_array (ArrayLike, optional): Tensile forces in N at which
+                to calculate the average strain. Defaults to 1000 points
+                between 0.1 N and the TCM tensile limit minus 0.1 N.
+            stress_failure_concrete (float): Concrete tensile strength in MPa.
+            young_modulus_concrete (float): Concrete Young's modulus in MPa.
+            tau_0 (float): Bond shear stress before steel yielding in MPa.
+            tau_1 (float): Bond shear stress after steel yielding in MPa.
+
+        Returns:
+            np.ndarray: Average axial strains corresponding to ``force_array``.
+
+        Raises:
+            ValueError: If the section or parameters do not satisfy the model
+                assumptions, or if a force is outside the tensile TCM domain.
+        """
+        print("TCM still under integration. Current limitations are:\n" \
+        "- bilinear steel behaviour and linear concrete behaviour are assumed.\n" \
+        "- concrete area is assumed to fully contribute to load transmission.\n" \
+        "- Tau-slip curve assumes a constant value Tau0 up to steel yield and Tau1 beyond that.\n" \
+        "- fully developed crack pattern of maximum crack length is assumed, even from F=0N.\n" \
+        "- plus, an error is raised if steel's yield occurs before concrete cracking.")
+        (
+            steel,
+            area_reinforcement,
+            area_concrete,
+            bond_perimeter,
+        ) = self._get_tcm_section_properties()
+        if any(
+            not math.isfinite(value) or value <= 0
+            for value in (
+                stress_failure_concrete,
+                young_modulus_concrete,
+                tau_0,
+                tau_1,
+            )
+        ):
+            raise ValueError(
+                'TCM strengths, moduli, and bond stresses must be positive.'
+            )
+        if tau_1 > tau_0:
+            raise ValueError('tau_1 must not exceed tau_0.')
+        if steel.ftk <= steel.fyk:
+            raise ValueError(
+                'The TCM requires steel ultimate strength above yield.'
+            )
+
+        strain_yield = steel.fyk / steel.Es
+        if steel.epsuk <= strain_yield:
+            raise ValueError(
+                'Steel ultimate strain must exceed its yield strain.'
+            )
+        post_yield_modulus = (steel.ftk - steel.fyk) / (
+            steel.epsuk - strain_yield
+        )
+        slope_0 = bond_perimeter * tau_0
+        slope_1 = bond_perimeter * tau_1
+        crack_spacing = 2 * stress_failure_concrete * area_concrete / slope_0
+        force_bonded = (
+            stress_failure_concrete
+            * (
+                area_reinforcement * steel.Es
+                + area_concrete * young_modulus_concrete
+            )
+            / young_modulus_concrete
+        )
+        if force_bonded / area_reinforcement > steel.fyk:
+            raise ValueError(
+                'Steel yields before the first concrete crack '
+                'in the TCM model.'
+            )
+
+        force_yield = steel.fyk * area_reinforcement
+        force_full_yield = force_yield + slope_1 * crack_spacing / 2
+        force_failure = steel.ftk * area_reinforcement
+        if force_array is None:
+            force_limit = min(self.n_max, force_failure)
+            if force_limit <= 0.2:
+                raise ValueError(
+                    'The section has no positive tensile TCM range.'
+                )
+            forces = np.linspace(0.1, force_limit - 0.1, 1000)
+        else:
+            forces = np.asarray(force_array, dtype=float)
+        if forces.ndim != 1 or not np.all(np.isfinite(forces)):
+            raise ValueError(
+                'force_array must be a one-dimensional finite array.'
+            )
+        if np.any(forces < 0) or np.any(forces > force_failure):
+            raise ValueError(
+                f'Forces must be between 0 and the TCM failure force '
+                f'({force_failure} N).'
+            )
+        return np.asarray(
+            [
+                self._calculate_tcm_average_strain(
+                    force,
+                    steel=steel,
+                    area_reinforcement=area_reinforcement,
+                    area_concrete=area_concrete,
+                    stress_failure_concrete=stress_failure_concrete,
+                    young_modulus_concrete=young_modulus_concrete,
+                    strain_yield=strain_yield,
+                    post_yield_modulus=post_yield_modulus,
+                    slope_0=slope_0,
+                    slope_1=slope_1,
+                    crack_spacing=crack_spacing,
+                    force_bonded=force_bonded,
+                    force_yield=force_yield,
+                    force_full_yield=force_full_yield,
+                )
+                for force in forces
+            ]
+        )
 
     @property
     def n_min(self) -> float:

@@ -164,4 +164,6 @@ cython_debug/
 *.python-version
 
 #Temporary files for development
-FileTemporaneoPerTestResente.py
+#FileTemporaneoPerTestResente.py
+#FileTemporaneoPerTestResente_TCM.py
+#FileTemporaneoPerTestResente_TCM_V02.py
