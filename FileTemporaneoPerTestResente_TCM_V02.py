@@ -1,5 +1,5 @@
 """Example of application of the TCM.
-Starts from the official Structuralcodes example and continues."""
+Starts from an already published Structuralcodes example and continues."""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -93,15 +93,15 @@ Fmax_Tensile = Fmax[1]
 
 #-----------------------------------------------Applicazione TCM----------------------------------------------------
 
-#Additional iput
+#Additional iput required for TCM
 As=section.gross_properties.area_reinforcement    #Area reinforcement
 Ac=section.gross_properties.area-As               #Area concrete
-Stress_failure_concrete=5                         #ultimate stress of the concrete [MPa]
+Stress_failure_concrete=5                         #ultimate stress of the concrete in tension [MPa]
 Young_modulus_concrete=34000                      #Young modulus of the concrete [MPa]
 Tau0=1                                            #shear stress between reinforcement and steel before yielding of the steel [MPa]
 Tau1=0.5                                          #shear stress between reinforcement and steel after yielding of the steel [MPa]
 
-#application
+#application of the TCM
 F_array=np.linspace(0,Fmax_Tensile,1000)
 Eps_array=section.section_calculator.get_axial_strain_according_to_TCM(force_array=F_array,stress_failure_concrete=Stress_failure_concrete,
                                                                        young_modulus_concrete=Young_modulus_concrete,tau_0=Tau0,tau_1=Tau1)
