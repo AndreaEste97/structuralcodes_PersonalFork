@@ -863,7 +863,9 @@ class BeamSectionCalculator(SectionCalculator):
                 )
 
         area_reinforcement = sum(geo.area for geo in reinforcement)
-        area_concrete = sum(geo.area for geo in geometries)
+        area_concrete = (
+            sum(geo.area for geo in geometries) - area_reinforcement
+        )
         bond_perimeter = sum(math.pi * geo.diameter for geo in reinforcement)
         if area_reinforcement <= 0 or area_concrete <= 0:
             raise ValueError(
@@ -880,6 +882,7 @@ class BeamSectionCalculator(SectionCalculator):
     def _calculate_tcm_average_strain(
         force: float,
         *,
+        lambda_: float,
         steel: Reinforcement,
         area_reinforcement: float,
         area_concrete: float,
@@ -920,7 +923,7 @@ class BeamSectionCalculator(SectionCalculator):
             x_2 = 0.0
             force_2 = force
             x_3 = crack_spacing / 2
-            force_3 = force - area_concrete * stress_failure_concrete
+            force_3 = force - area_concrete * stress_failure_concrete * lambda_
         elif force <= force_full_yield:
             x_2 = (force - force_yield) / slope_1
             force_2 = force_yield
@@ -965,6 +968,7 @@ class BeamSectionCalculator(SectionCalculator):
         young_modulus_concrete: float = 34000.0,
         tau_0: float = 1.0,
         tau_1: float = 0.5,
+        lambda_: float = 0.67,
     ) -> np.ndarray:
         """Calculate the average tensile strain using the Tension Chord Model.
 
@@ -981,6 +985,8 @@ class BeamSectionCalculator(SectionCalculator):
             young_modulus_concrete (float): Concrete Young's modulus in MPa.
             tau_0 (float): Bond shear stress before steel yielding in MPa.
             tau_1 (float): Bond shear stress after steel yielding in MPa.
+            lambda_ (float): Factor applied to the maximum crack spacing and
+                concrete force transfer (default: 0.67).
 
         Returns:
             np.ndarray: Average axial strains corresponding to ``force_array``.
@@ -989,12 +995,14 @@ class BeamSectionCalculator(SectionCalculator):
             ValueError: If the section or parameters do not satisfy the model
                 assumptions, or if a force is outside the tensile TCM domain.
         """
-        print("TCM still under integration. Current limitations are:\n" \
-        "- bilinear steel behaviour and linear concrete behaviour are assumed.\n" \
-        "- concrete area is assumed to fully contribute to load transmission.\n" \
-        "- Tau-slip curve assumes a constant value Tau0 up to steel yield and Tau1 beyond that.\n" \
-        "- fully developed crack pattern of maximum crack length is assumed, even from F=0N.\n" \
-        "- plus, an error is raised if steel's yield occurs before concrete cracking.")
+        print(
+            "TCM still under integration. Current limitations are:\n"
+            "- bilinear steel behaviour and linear concrete behaviour are assumed.\n"
+            "- concrete area is assumed to fully contribute to load transmission.\n"
+            "- Tau-slip curve assumes a constant value Tau0 up to steel yield and Tau1 beyond that.\n"
+            "- crack spacing is lambda_ times the maximum spacing at all force levels.\n"
+            "- plus, an error is raised if steel's yield occurs before concrete cracking."
+        )
         (
             steel,
             area_reinforcement,
@@ -1008,10 +1016,12 @@ class BeamSectionCalculator(SectionCalculator):
                 young_modulus_concrete,
                 tau_0,
                 tau_1,
+                lambda_,
             )
         ):
             raise ValueError(
-                'TCM strengths, moduli, and bond stresses must be positive.'
+                'TCM strengths, moduli, bond stresses, and lambda_ must '
+                'be positive.'
             )
         if tau_1 > tau_0:
             raise ValueError('tau_1 must not exceed tau_0.')
@@ -1030,7 +1040,9 @@ class BeamSectionCalculator(SectionCalculator):
         )
         slope_0 = bond_perimeter * tau_0
         slope_1 = bond_perimeter * tau_1
-        crack_spacing = 2 * stress_failure_concrete * area_concrete / slope_0
+        crack_spacing = (
+            2 * stress_failure_concrete * area_concrete / slope_0 * lambda_
+        )
         force_bonded = (
             stress_failure_concrete
             * (
@@ -1038,6 +1050,7 @@ class BeamSectionCalculator(SectionCalculator):
                 + area_concrete * young_modulus_concrete
             )
             / young_modulus_concrete
+            * lambda_
         )
         if force_bonded / area_reinforcement > steel.fyk:
             raise ValueError(
@@ -1070,6 +1083,7 @@ class BeamSectionCalculator(SectionCalculator):
             [
                 self._calculate_tcm_average_strain(
                     force,
+                    lambda_=lambda_,
                     steel=steel,
                     area_reinforcement=area_reinforcement,
                     area_concrete=area_concrete,

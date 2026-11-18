@@ -84,8 +84,8 @@ geometry = add_reinforcement(
 # Create section
 section = BeamSection(geometry)
 
-Fmax = section.section_calculator.calculate_limit_axial_load()
-Fmax_Tensile = Fmax[1]
+#Fmax = section.section_calculator.calculate_limit_axial_load()
+#Fmax_Tensile = Fmax[1]
 #print(Fmax_Tensile)
 
 
@@ -102,9 +102,13 @@ Tau0=1                                            #shear stress between reinforc
 Tau1=0.5                                          #shear stress between reinforcement and steel after yielding of the steel [MPa]
 
 #application of the TCM
+Fmax_Tensile=As*ftk
 F_array=np.linspace(0,Fmax_Tensile,1000)
 Eps_array=section.section_calculator.get_axial_strain_according_to_TCM(force_array=F_array,stress_failure_concrete=Stress_failure_concrete,
-                                                                       young_modulus_concrete=Young_modulus_concrete,tau_0=Tau0,tau_1=Tau1)
+                                                                       young_modulus_concrete=Young_modulus_concrete,tau_0=Tau0,tau_1=Tau1,
+                                                                       lambda_=0.67)
+#print(Fmax_Tensile)
+#print(ftk*As)
 
 #plot
 fig, ax = plt.subplots()

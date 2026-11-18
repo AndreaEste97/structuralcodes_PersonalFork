@@ -66,6 +66,32 @@ def test_get_axial_strain_according_to_tcm():
     assert strain.shape == (1000,)
     assert np.all(np.isfinite(strain))
     assert np.all(np.diff(strain) >= 0)
+    calc = section.section_calculator
+    force = 20000.0
+    default_lambda_strain = calc.get_axial_strain_according_to_TCM(
+        force_array=[force]
+    )[0]
+    assert (
+        default_lambda_strain
+        == calc.get_axial_strain_according_to_TCM(
+            force_array=[force], lambda_=0.67
+        )[0]
+    )
+
+    area_reinforcement = section.gross_properties.area_reinforcement
+    area_concrete = section.gross_properties.area - area_reinforcement
+    expected_strain = (
+        force / area_reinforcement / steel.Es
+        + (force - area_concrete * 5.0 * 0.67) / area_reinforcement / steel.Es
+    ) / 2
+    assert np.isclose(default_lambda_strain, expected_strain)
+    assert not np.isclose(
+        default_lambda_strain,
+        calc.get_axial_strain_according_to_TCM(
+            force_array=[force], lambda_=1.0
+        )[0],
+    )
+
     forces = np.linspace(0.1, section.section_calculator.n_max - 0.1, 5)
     assert (
         section.section_calculator.get_axial_strain_according_to_TCM(
@@ -82,6 +108,10 @@ def test_get_axial_strain_according_to_tcm():
     with pytest.raises(ValueError, match='between 0'):
         section.section_calculator.get_axial_strain_according_to_TCM(
             force_array=[-1]
+        )
+    with pytest.raises(ValueError, match='lambda_ must be positive'):
+        section.section_calculator.get_axial_strain_according_to_TCM(
+            force_array=[force], lambda_=0
         )
 
 
